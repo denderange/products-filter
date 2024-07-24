@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Filter } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import axios from "axios";
 import { useQuery } from "@tanstack/react-query";
 import { QueryResult } from "@upstash/vector";
@@ -21,6 +21,9 @@ import {
 	AccordionTrigger,
 } from "@/components/ui/accordion";
 import { ProductState } from "@/lib/validators";
+import { Slider } from "@/components/ui/slider";
+import debounce from "lodash.debounce";
+import ProductsEmptyState from "@/components/Products/ProductsEmptyState";
 
 const SORT_OPTIONS = [
 	{ name: "None", value: "none" },
@@ -80,17 +83,28 @@ export default function Home() {
 		sort: "none",
 	});
 
-	const { data: products } = useQuery({
+	const { data: products, refetch } = useQuery({
 		queryKey: ["products"],
 		queryFn: async () => {
 			const { data } = await axios.post<QueryResult<Product>[]>(
 				"http://localhost:3000/api/products",
-				{ filter: { sort: filter.sort } }
+				{
+					filter: {
+						color: filter.color,
+						price: filter.price.range,
+						size: filter.size,
+						sort: filter.sort,
+					},
+				}
 			);
 
 			return data;
 		},
 	});
+
+	const onSubmit = () => refetch();
+	const debouncedSubmit = debounce(onSubmit, 400);
+	const _debouncedSubmit = useCallback(debouncedSubmit, []);
 
 	const applyArrayFilter = ({
 		category,
@@ -112,12 +126,12 @@ export default function Home() {
 				[category]: [...prev[category], value],
 			}));
 		}
+
+		_debouncedSubmit();
 	};
 
 	const minPrice = Math.min(filter.price.range[0], filter.price.range[1]);
 	const maxPrice = Math.max(filter.price.range[0], filter.price.range[1]);
-
-	console.log(filter);
 
 	return (
 		<main className='mx-auto max-w-7xl px-4 sm:px-6 lg: lg:px-8'>
@@ -139,6 +153,8 @@ export default function Home() {
 									key={option.name}
 									onClick={() => {
 										setFilter((prev) => ({ ...prev, sort: option.value }));
+
+										_debouncedSubmit();
 									}}
 									className={cn("text-left w-full block px-4 py-2 text-sm", {
 										"text-gray-900 bg-gray-100": option.value === filter.sort,
@@ -268,6 +284,8 @@ export default function Home() {
 																range: [...option.value],
 															},
 														}));
+
+														_debouncedSubmit();
 													}}
 													checked={
 														!filter.price.isCustom &&
@@ -298,6 +316,8 @@ export default function Home() {
 																range: priceRange,
 															},
 														}));
+
+														_debouncedSubmit();
 													}}
 													checked={filter.price.isCustom}
 													className='h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer'
@@ -309,7 +329,7 @@ export default function Home() {
 												</label>
 											</div>
 
-											<div className='flex justify-between'>
+											<div className='flex justify-between mb-4'>
 												<p className='font-medium'>Price</p>
 												<div>
 													{filter.price.isCustom
@@ -318,9 +338,35 @@ export default function Home() {
 													$ -{" "}
 													{filter.price.isCustom
 														? maxPrice.toFixed(0)
-														: filter.price.range[1].toFixed(0)}
+														: filter.price.range[1].toFixed(0)}{" "}
+													$
 												</div>
 											</div>
+
+											<Slider
+												disabled={!filter.price.isCustom}
+												value={
+													filter.price.isCustom
+														? filter.price.range
+														: DEFAULT_CUSTOM_PRICE
+												}
+												onValueChange={(range) => {
+													const [newMin, newMax] = range;
+
+													setFilter((prev) => ({
+														...prev,
+														price: {
+															isCustom: true,
+															range: [newMin, newMax],
+														},
+													}));
+												}}
+												min={DEFAULT_CUSTOM_PRICE[0]}
+												max={DEFAULT_CUSTOM_PRICE[1]}
+												defaultValue={DEFAULT_CUSTOM_PRICE}
+												step={5}
+												className={cn({ "opacity-10": !filter.price.isCustom })}
+											/>
 										</li>
 									</ul>
 								</AccordionContent>
@@ -330,13 +376,17 @@ export default function Home() {
 
 					{/* Products */}
 					<ul className='grid grid-cols-1 sm:grid-cols-2 lg:col-span-3 md:grid-cols-3 gap-8'>
-						{products
-							? products.map((product) => (
-									<ProductItem product={product.metadata!} />
-							  ))
-							: new Array(12)
-									.fill(null)
-									.map((_, i) => <ProductSkeleton key={i} />)}
+						{products && products.length === 0 ? (
+							<ProductsEmptyState />
+						) : products ? (
+							products.map((product) => (
+								<ProductItem product={product.metadata!} />
+							))
+						) : (
+							new Array(12)
+								.fill(null)
+								.map((_, i) => <ProductSkeleton key={i} />)
+						)}
 					</ul>
 				</div>
 			</section>
